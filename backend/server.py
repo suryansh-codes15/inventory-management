@@ -650,32 +650,33 @@ import asyncio
 async def _compute_kpis(db: AsyncSession) -> dict:
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
-    t_products = db.execute(select(func.count()).select_from(Product))
-    t_categories = db.execute(select(func.count()).select_from(Category))
-    t_suppliers = db.execute(select(func.count()).select_from(Supplier))
-    t_customers = db.execute(select(func.count()).select_from(Customer))
-    t_orders = db.execute(select(func.count()).select_from(Order))
-    t_low = db.execute(select(func.count()).select_from(Product).where(
-        and_(Product.quantity > 0, Product.quantity <= Product.reorder_level)
-    ))
-    t_out = db.execute(select(func.count()).select_from(Product).where(Product.quantity == 0))
-    t_val = db.execute(select(func.coalesce(func.sum(Product.cost_price * Product.quantity), 0.0)))
-    t_tx = db.execute(select(func.count()).select_from(InventoryLog).where(InventoryLog.created_at >= today))
-    
-    results = await asyncio.gather(
-        t_products, t_categories, t_suppliers, t_customers, t_orders, t_low, t_out, t_val, t_tx
+    q = select(
+        select(func.count()).select_from(Product).scalar_subquery().label("total_products"),
+        select(func.count()).select_from(Category).scalar_subquery().label("total_categories"),
+        select(func.count()).select_from(Supplier).scalar_subquery().label("total_suppliers"),
+        select(func.count()).select_from(Customer).scalar_subquery().label("total_customers"),
+        select(func.count()).select_from(Order).scalar_subquery().label("total_orders"),
+        select(func.count()).select_from(Product).where(
+            and_(Product.quantity > 0, Product.quantity <= Product.reorder_level)
+        ).scalar_subquery().label("low_stock"),
+        select(func.count()).select_from(Product).where(Product.quantity == 0).scalar_subquery().label("out_of_stock"),
+        select(func.coalesce(func.sum(Product.cost_price * Product.quantity), 0.0)).select_from(Product).scalar_subquery().label("inventory_value"),
+        select(func.count()).select_from(InventoryLog).where(InventoryLog.created_at >= today).scalar_subquery().label("todays_transactions")
     )
     
+    res = await db.execute(q)
+    row = res.one()
+    
     return {
-        "total_products": results[0].scalar() or 0,
-        "total_categories": results[1].scalar() or 0,
-        "total_suppliers": results[2].scalar() or 0,
-        "total_customers": results[3].scalar() or 0,
-        "total_orders": results[4].scalar() or 0,
-        "low_stock": results[5].scalar() or 0,
-        "out_of_stock": results[6].scalar() or 0,
-        "inventory_value": round(float(results[7].scalar() or 0.0), 2),
-        "todays_transactions": results[8].scalar() or 0,
+        "total_products": row.total_products or 0,
+        "total_categories": row.total_categories or 0,
+        "total_suppliers": row.total_suppliers or 0,
+        "total_customers": row.total_customers or 0,
+        "total_orders": row.total_orders or 0,
+        "low_stock": row.low_stock or 0,
+        "out_of_stock": row.out_of_stock or 0,
+        "inventory_value": round(float(row.inventory_value or 0.0), 2),
+        "todays_transactions": row.todays_transactions or 0,
     }
 
 
@@ -760,13 +761,12 @@ async def _monthly_growth(db: AsyncSession, months: int = 6) -> list:
 
 @api.get("/reports/dashboard")
 async def dashboard(db: AsyncSession = Depends(get_session), _: UserOut = Depends(get_current_user)):
-    res_kpi, res_trend, res_cat, res_growth, res_sup = await asyncio.gather(
-        _compute_kpis(db),
-        _stock_trend(db),
-        _category_distribution(db),
-        _monthly_growth(db),
-        _supplier_contribution(db)
-    )
+    res_kpi = await _compute_kpis(db)
+    res_trend = await _stock_trend(db)
+    res_cat = await _category_distribution(db)
+    res_growth = await _monthly_growth(db)
+    res_sup = await _supplier_contribution(db)
+    
     return {
         "kpi": res_kpi,
         "stock_trend": res_trend,
