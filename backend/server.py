@@ -21,7 +21,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -686,12 +686,12 @@ async def _stock_trend(db: AsyncSession, days: int = 14) -> list:
     
     q = (
         select(
-            func.date_trunc('day', InventoryLog.created_at).label('date'),
+            func.date_trunc(literal_column("'day'"), InventoryLog.created_at).label('date'),
             InventoryLog.action,
             func.count(InventoryLog.id).label('count')
         )
         .where(InventoryLog.created_at >= start_date)
-        .group_by(func.date_trunc('day', InventoryLog.created_at), InventoryLog.action)
+        .group_by(func.date_trunc(literal_column("'day'"), InventoryLog.created_at), InventoryLog.action)
     )
     res = await db.execute(q)
     rows = res.all()
@@ -740,11 +740,11 @@ async def _monthly_growth(db: AsyncSession, months: int = 6) -> list:
     
     q = (
         select(
-            func.date_trunc('month', Product.created_at).label('month'),
+            func.date_trunc(literal_column("'month'"), Product.created_at).label('month'),
             func.count(Product.id).label('count')
         )
         .where(Product.created_at >= start_date)
-        .group_by(func.date_trunc('month', Product.created_at))
+        .group_by(func.date_trunc(literal_column("'month'"), Product.created_at))
     )
     res = await db.execute(q)
     rows = res.all()

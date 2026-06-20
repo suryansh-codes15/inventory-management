@@ -32,17 +32,31 @@ export default function Login() {
   const quick = (e, p) => { setEmail(e); setPassword(p); };
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] bg-background overflow-hidden" data-testid="login-page">
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] bg-background overflow-hidden relative" data-testid="login-page">
+      {/* Mobile Video Background - visible only on screen sizes < lg */}
+      <div className="absolute inset-0 block lg:hidden z-0">
+        <video
+          src="/assets/write_is_caps_ethara_ai.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="w-full h-full object-cover opacity-35"
+        />
+        <div className="absolute inset-0 bg-background/85 dark:bg-slate-950/80" />
+        <div className="absolute inset-0 bg-grid-dark opacity-[0.03] pointer-events-none" />
+      </div>
+
       {/* LEFT: Form */}
       <motion.div
         initial={{ opacity: 0, x: -16 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
-        className="relative flex items-center justify-center p-6 sm:p-12"
+        className="relative flex items-center justify-center p-4 sm:p-8 lg:p-12 z-10"
       >
-        <div className="aurora aurora-soft" />
-        <div className="absolute inset-0 bg-grid-dark opacity-[0.04] pointer-events-none" />
-        <div className="w-full max-w-md relative z-10">
+        <div className="aurora aurora-soft hidden lg:block" />
+        <div className="absolute inset-0 bg-grid-dark opacity-[0.04] pointer-events-none hidden lg:block" />
+        <div className="w-full max-w-md relative z-10 bg-card/70 backdrop-blur-lg lg:bg-transparent lg:backdrop-blur-none p-6 sm:p-8 lg:p-0 rounded-2xl border border-border/40 lg:border-none shadow-xl lg:shadow-none">
           <div className="flex items-center gap-3 mb-10">
             <div className="relative">
               <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-500/30 logo-3d">IO</div>
