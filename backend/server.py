@@ -645,47 +645,73 @@ async def inventory_history(product_id: Optional[str] = None, action: Optional[s
 # ============================================================
 # REPORTS / DASHBOARD
 # ============================================================
+import asyncio
+
 async def _compute_kpis(db: AsyncSession) -> dict:
-    total_products = (await db.execute(select(func.count()).select_from(Product))).scalar() or 0
-    total_categories = (await db.execute(select(func.count()).select_from(Category))).scalar() or 0
-    total_suppliers = (await db.execute(select(func.count()).select_from(Supplier))).scalar() or 0
-    total_customers = (await db.execute(select(func.count()).select_from(Customer))).scalar() or 0
-    total_orders = (await db.execute(select(func.count()).select_from(Order))).scalar() or 0
-    low_stock = (await db.execute(select(func.count()).select_from(Product).where(
-        and_(Product.quantity > 0, Product.quantity <= Product.reorder_level)
-    ))).scalar() or 0
-    out_of_stock = (await db.execute(select(func.count()).select_from(Product).where(Product.quantity == 0))).scalar() or 0
-    inv_value_row = (await db.execute(select(func.coalesce(func.sum(Product.cost_price * Product.quantity), 0.0)))).scalar() or 0.0
-
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    todays_tx = (await db.execute(select(func.count()).select_from(InventoryLog).where(InventoryLog.created_at >= today))).scalar() or 0
-
+    
+    t_products = db.execute(select(func.count()).select_from(Product))
+    t_categories = db.execute(select(func.count()).select_from(Category))
+    t_suppliers = db.execute(select(func.count()).select_from(Supplier))
+    t_customers = db.execute(select(func.count()).select_from(Customer))
+    t_orders = db.execute(select(func.count()).select_from(Order))
+    t_low = db.execute(select(func.count()).select_from(Product).where(
+        and_(Product.quantity > 0, Product.quantity <= Product.reorder_level)
+    ))
+    t_out = db.execute(select(func.count()).select_from(Product).where(Product.quantity == 0))
+    t_val = db.execute(select(func.coalesce(func.sum(Product.cost_price * Product.quantity), 0.0)))
+    t_tx = db.execute(select(func.count()).select_from(InventoryLog).where(InventoryLog.created_at >= today))
+    
+    results = await asyncio.gather(
+        t_products, t_categories, t_suppliers, t_customers, t_orders, t_low, t_out, t_val, t_tx
+    )
+    
     return {
-        "total_products": total_products,
-        "total_categories": total_categories,
-        "total_suppliers": total_suppliers,
-        "total_customers": total_customers,
-        "total_orders": total_orders,
-        "low_stock": low_stock,
-        "out_of_stock": out_of_stock,
-        "inventory_value": round(float(inv_value_row), 2),
-        "todays_transactions": todays_tx,
+        "total_products": results[0].scalar() or 0,
+        "total_categories": results[1].scalar() or 0,
+        "total_suppliers": results[2].scalar() or 0,
+        "total_customers": results[3].scalar() or 0,
+        "total_orders": results[4].scalar() or 0,
+        "low_stock": results[5].scalar() or 0,
+        "out_of_stock": results[6].scalar() or 0,
+        "inventory_value": round(float(results[7].scalar() or 0.0), 2),
+        "todays_transactions": results[8].scalar() or 0,
     }
 
 
 async def _stock_trend(db: AsyncSession, days: int = 14) -> list:
-    out = []
     today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_date = today_utc - timedelta(days=days - 1)
+    
+    q = (
+        select(
+            func.date_trunc('day', InventoryLog.created_at).label('date'),
+            InventoryLog.action,
+            func.count(InventoryLog.id).label('count')
+        )
+        .where(InventoryLog.created_at >= start_date)
+        .group_by(func.date_trunc('day', InventoryLog.created_at), InventoryLog.action)
+    )
+    res = await db.execute(q)
+    rows = res.all()
+    
+    data = {}
+    for r_date, action, count in rows:
+        d_str = r_date.strftime("%m-%d")
+        if d_str not in data:
+            data[d_str] = {"stock_in": 0, "stock_out": 0}
+        if action in ("stock_in", "stock_out"):
+            data[d_str][action] = count
+
+    out = []
     for i in range(days - 1, -1, -1):
-        start = today_utc - timedelta(days=i)
-        end = start + timedelta(days=1)
-        ins = (await db.execute(select(func.count()).select_from(InventoryLog).where(
-            and_(InventoryLog.action == "stock_in", InventoryLog.created_at >= start, InventoryLog.created_at < end)
-        ))).scalar() or 0
-        outs = (await db.execute(select(func.count()).select_from(InventoryLog).where(
-            and_(InventoryLog.action == "stock_out", InventoryLog.created_at >= start, InventoryLog.created_at < end)
-        ))).scalar() or 0
-        out.append({"date": start.strftime("%m-%d"), "stock_in": ins, "stock_out": outs})
+        d_str = (today_utc - timedelta(days=i)).strftime("%m-%d")
+        day_data = data.get(d_str, {"stock_in": 0, "stock_out": 0})
+        out.append({
+            "date": d_str,
+            "stock_in": day_data["stock_in"],
+            "stock_out": day_data["stock_out"]
+        })
     return out
 
 
@@ -708,27 +734,45 @@ async def _supplier_contribution(db: AsyncSession) -> list:
 
 
 async def _monthly_growth(db: AsyncSession, months: int = 6) -> list:
-    out = []
     now = datetime.now(timezone.utc)
+    start_date = (now.replace(day=1) - timedelta(days=30 * (months - 1))).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    q = (
+        select(
+            func.date_trunc('month', Product.created_at).label('month'),
+            func.count(Product.id).label('count')
+        )
+        .where(Product.created_at >= start_date)
+        .group_by(func.date_trunc('month', Product.created_at))
+    )
+    res = await db.execute(q)
+    rows = res.all()
+    
+    data = {r_month.strftime("%b %Y"): count for r_month, count in rows}
+    
+    out = []
     for i in range(months - 1, -1, -1):
         m_start = (now.replace(day=1) - timedelta(days=30 * i)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # rough next-month boundary
-        next_m = (m_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-        count = (await db.execute(select(func.count()).select_from(Product).where(
-            and_(Product.created_at >= m_start, Product.created_at < next_m)
-        ))).scalar() or 0
-        out.append({"month": m_start.strftime("%b %Y"), "products": count})
+        m_str = m_start.strftime("%b %Y")
+        out.append({"month": m_str, "products": data.get(m_str, 0)})
     return out
 
 
 @api.get("/reports/dashboard")
 async def dashboard(db: AsyncSession = Depends(get_session), _: UserOut = Depends(get_current_user)):
+    res_kpi, res_trend, res_cat, res_growth, res_sup = await asyncio.gather(
+        _compute_kpis(db),
+        _stock_trend(db),
+        _category_distribution(db),
+        _monthly_growth(db),
+        _supplier_contribution(db)
+    )
     return {
-        "kpi": await _compute_kpis(db),
-        "stock_trend": await _stock_trend(db),
-        "category_distribution": await _category_distribution(db),
-        "monthly_growth": await _monthly_growth(db),
-        "supplier_contribution": await _supplier_contribution(db),
+        "kpi": res_kpi,
+        "stock_trend": res_trend,
+        "category_distribution": res_cat,
+        "monthly_growth": res_growth,
+        "supplier_contribution": res_sup,
     }
 
 
