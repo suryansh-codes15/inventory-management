@@ -27,8 +27,70 @@ const NAV = [
   { to: "/audit", label: "Audit Trail", icon: ShieldCheck, key: "audit", roles: ["admin", "manager"] },
 ];
 
+const SidebarContent = ({ collapsed, user, closeMobile }) => {
+  return (
+    <>
+      <div className="h-16 flex items-center px-4 border-b border-border">
+        <div className="relative">
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-500/30 logo-3d">
+            IO
+          </div>
+          <div className="absolute inset-0 rounded-xl bg-emerald-500/30 blur-lg -z-10" />
+        </div>
+        {(!collapsed || closeMobile) && (
+          <div className="ml-3">
+            <div className="font-display font-bold leading-tight">Inventory Ops</div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground flex items-center gap-1">
+              <span className="pulse-dot" /> Enterprise
+            </div>
+          </div>
+        )}
+      </div>
+
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        {NAV.filter((n) => !n.roles || n.roles.includes(user?.role)).map((item) => (
+          <NavLink
+            key={item.key} to={item.to} data-testid={`nav-${item.key}`}
+            onClick={closeMobile}
+            className={({ isActive }) =>
+              `relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group ${
+                isActive
+                  ? "bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <motion.div
+                    layoutId="nav-pill"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full bg-gradient-to-b from-emerald-400 to-emerald-600"
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <item.icon className={`h-4 w-4 shrink-0 ${isActive ? "text-emerald-600 dark:text-emerald-400" : ""}`} />
+                {(!collapsed || closeMobile) && <span>{item.label}</span>}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+
+      {(!collapsed || closeMobile) && (
+        <div className="mx-3 mb-3 p-3 rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-emerald-500/0 relative overflow-hidden">
+          <Sparkles className="h-4 w-4 text-emerald-500 mb-1" />
+          <div className="text-xs font-semibold">Operations live</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">All systems nominal</div>
+        </div>
+      )}
+    </>
+  );
+};
+
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const { user, logout } = useAuth();
   const nav = useNavigate();
@@ -49,64 +111,12 @@ export default function Layout() {
         <div className="aurora aurora-soft" />
       </div>
 
-      {/* Sidebar */}
+      {/* Desktop Sidebar */}
       <aside
         data-testid="sidebar"
-        className={`${collapsed ? "w-[72px]" : "w-[248px]"} shrink-0 border-r border-border bg-card/70 backdrop-blur-md transition-all duration-300 flex flex-col relative z-20`}
+        className={`${collapsed ? "w-[72px]" : "w-[248px]"} hidden md:flex shrink-0 border-r border-border bg-card/70 backdrop-blur-md transition-all duration-300 flex-col relative z-20`}
       >
-        <div className="h-16 flex items-center px-4 border-b border-border">
-          <div className="relative">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-500/30 logo-3d">
-              IO
-            </div>
-            <div className="absolute inset-0 rounded-xl bg-emerald-500/30 blur-lg -z-10" />
-          </div>
-          {!collapsed && (
-            <div className="ml-3">
-              <div className="font-display font-bold leading-tight">Inventory Ops</div>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground flex items-center gap-1">
-                <span className="pulse-dot" /> Enterprise
-              </div>
-            </div>
-          )}
-        </div>
-
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {NAV.filter((n) => !n.roles || n.roles.includes(user?.role)).map((item) => (
-            <NavLink
-              key={item.key} to={item.to} data-testid={`nav-${item.key}`}
-              className={({ isActive }) =>
-                `relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group ${
-                  isActive
-                    ? "bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-700 dark:text-emerald-400"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <motion.div
-                      layoutId="nav-pill"
-                      className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full bg-gradient-to-b from-emerald-400 to-emerald-600"
-                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                    />
-                  )}
-                  <item.icon className={`h-4 w-4 shrink-0 ${isActive ? "text-emerald-600 dark:text-emerald-400" : ""}`} />
-                  {!collapsed && <span>{item.label}</span>}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
-
-        {!collapsed && (
-          <div className="mx-3 mb-3 p-3 rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-emerald-500/0 relative overflow-hidden">
-            <Sparkles className="h-4 w-4 text-emerald-500 mb-1" />
-            <div className="text-xs font-semibold">Operations live</div>
-            <div className="text-[10px] text-muted-foreground mt-0.5">All systems nominal</div>
-          </div>
-        )}
+        <SidebarContent collapsed={collapsed} user={user} initials={initials} />
 
         <button
           data-testid="sidebar-toggle" onClick={() => setCollapsed(!collapsed)}
@@ -116,19 +126,32 @@ export default function Layout() {
         </button>
       </aside>
 
-      {/* Main */}
+      {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Topbar */}
         <header className="h-16 border-b border-border bg-card/60 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-30">
           <div className="flex items-center gap-3 max-w-md w-full">
-            <Search className="h-4 w-4 text-muted-foreground" />
+            {/* Mobile Sidebar Trigger (Hamburger Menu) */}
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="md:hidden shrink-0" data-testid="sidebar-mobile-toggle">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="p-0 w-[248px] flex flex-col h-full bg-card border-r border-border">
+                <SidebarContent collapsed={false} user={user} initials={initials} closeMobile={() => setMobileOpen(false)} />
+              </SheetContent>
+            </Sheet>
+
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
             <input
               data-testid="topbar-search"
-              placeholder="Search products, suppliers…"
+              placeholder="Search..."
               className="bg-transparent outline-none text-sm placeholder:text-muted-foreground w-full"
             />
             <kbd className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded border border-border text-[10px] text-muted-foreground bg-secondary">⌘K</kbd>
           </div>
+          
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="hidden lg:flex items-center gap-1.5 text-xs border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/5">
               <span className="pulse-dot" /> Live
