@@ -1,4 +1,4 @@
-# Triggering automated build and push to Docker Hub v3
+# Triggering automated build and push to Docker Hub v4
 name: Build and Push Backend Docker Image
 
 on:
