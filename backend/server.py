@@ -54,6 +54,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Inventory & Order Management API", version="1.0.0")
+
+# CORS middleware
+cors_origins = [orig.strip() for orig in os.environ.get("CORS_ORIGINS", "*").split(",") if orig.strip()]
+if "*" in cors_origins:
+    cors_origins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://frontend-eight-tau-a324wirk80.vercel.app"
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 api = APIRouter(prefix="/api")
 
 
