@@ -343,6 +343,7 @@ async def create_product(payload: ProductIn, db: AsyncSession = Depends(get_sess
     db.add(p); await db.flush()
     await log_audit(db, user, "create", "product", p.id, f"Created product: {p.name} ({p.sku})")
     await db.commit(); await db.refresh(p)
+    clear_dashboard_cache()
     return p
 
 
@@ -363,6 +364,7 @@ async def update_product(pid: str, payload: ProductUpdate, db: AsyncSession = De
         setattr(p, k, v)
     await log_audit(db, user, "update", "product", pid, f"Updated product: {p.name}")
     await db.commit(); await db.refresh(p)
+    clear_dashboard_cache()
     return p
 
 
@@ -376,6 +378,7 @@ async def delete_product(pid: str, db: AsyncSession = Depends(get_session),
     await db.delete(p)
     await log_audit(db, user, "delete", "product", pid, f"Deleted product: {name}")
     await db.commit()
+    clear_dashboard_cache()
     return {"message": "Deleted"}
 
 
@@ -388,6 +391,7 @@ async def bulk_delete_products(payload: BulkDelete, db: AsyncSession = Depends(g
         await db.delete(r); deleted += 1
     await log_audit(db, user, "bulk_delete", "product", None, f"Bulk deleted {deleted} products")
     await db.commit()
+    clear_dashboard_cache()
     return {"deleted": deleted}
 
 
@@ -536,6 +540,7 @@ async def create_order(payload: OrderIn, db: AsyncSession = Depends(get_session)
     await log_audit(db, user, "create", "order", order.id,
                     f"Created order {order.order_number} ({len(items_out)} items, total ${total:.2f})")
     await db.commit()
+    clear_dashboard_cache()
 
     # Re-fetch with relationships
     order = (await db.execute(
@@ -572,6 +577,7 @@ async def cancel_order(oid: str, db: AsyncSession = Depends(get_session),
     order.status = "cancelled"
     await log_audit(db, user, "cancel", "order", oid, f"Cancelled order {order.order_number}")
     await db.commit()
+    clear_dashboard_cache()
     return {"message": "Order cancelled"}
 
 
@@ -597,6 +603,7 @@ async def stock_in(payload: StockIn, db: AsyncSession = Depends(get_session),
     db.add(log); await db.flush()
     await log_audit(db, user, "stock_in", "inventory", p.id, f"+{payload.quantity} {p.name}")
     await db.commit(); await db.refresh(log)
+    clear_dashboard_cache()
     return log
 
 
@@ -620,6 +627,7 @@ async def stock_out(payload: StockOut, db: AsyncSession = Depends(get_session),
     db.add(log); await db.flush()
     await log_audit(db, user, "stock_out", "inventory", p.id, f"-{payload.quantity} {p.name}")
     await db.commit(); await db.refresh(log)
+    clear_dashboard_cache()
     try:
         if p.quantity <= p.reorder_level:
             recipient = os.environ.get("ALERT_RECIPIENT")
@@ -646,6 +654,13 @@ async def inventory_history(product_id: Optional[str] = None, action: Optional[s
 # REPORTS / DASHBOARD
 # ============================================================
 import asyncio
+
+_DASHBOARD_CACHE = {"data": None, "timestamp": None}
+_DASHBOARD_CACHE_LOCK = asyncio.Lock()
+
+def clear_dashboard_cache():
+    global _DASHBOARD_CACHE
+    _DASHBOARD_CACHE = {"data": None, "timestamp": None}
 
 async def _compute_kpis(db: AsyncSession) -> dict:
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -759,21 +774,42 @@ async def _monthly_growth(db: AsyncSession, months: int = 6) -> list:
     return out
 
 
+@api.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @api.get("/reports/dashboard")
 async def dashboard(db: AsyncSession = Depends(get_session), _: UserOut = Depends(get_current_user)):
-    res_kpi = await _compute_kpis(db)
-    res_trend = await _stock_trend(db)
-    res_cat = await _category_distribution(db)
-    res_growth = await _monthly_growth(db)
-    res_sup = await _supplier_contribution(db)
+    global _DASHBOARD_CACHE
+    now = datetime.now(timezone.utc)
     
-    return {
-        "kpi": res_kpi,
-        "stock_trend": res_trend,
-        "category_distribution": res_cat,
-        "monthly_growth": res_growth,
-        "supplier_contribution": res_sup,
-    }
+    if _DASHBOARD_CACHE["data"] and _DASHBOARD_CACHE["timestamp"] and (now - _DASHBOARD_CACHE["timestamp"]).total_seconds() < 60:
+        return _DASHBOARD_CACHE["data"]
+        
+    async with _DASHBOARD_CACHE_LOCK:
+        if _DASHBOARD_CACHE["data"] and _DASHBOARD_CACHE["timestamp"] and (now - _DASHBOARD_CACHE["timestamp"]).total_seconds() < 60:
+            return _DASHBOARD_CACHE["data"]
+            
+        res_kpi = await _compute_kpis(db)
+        res_trend = await _stock_trend(db)
+        res_cat = await _category_distribution(db)
+        res_growth = await _monthly_growth(db)
+        res_sup = await _supplier_contribution(db)
+        
+        data = {
+            "kpi": res_kpi,
+            "stock_trend": res_trend,
+            "category_distribution": res_cat,
+            "monthly_growth": res_growth,
+            "supplier_contribution": res_sup,
+        }
+        
+        _DASHBOARD_CACHE = {
+            "data": data,
+            "timestamp": now
+        }
+        return data
 
 
 @api.get("/reports/low-stock")

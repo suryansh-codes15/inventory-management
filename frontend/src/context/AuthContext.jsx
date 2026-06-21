@@ -4,11 +4,22 @@ import api from "@/lib/api";
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(() => {
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("user");
+      return cached ? JSON.parse(cached) : null;
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(() => {
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("user");
+      return !cached;
+    }
+    return true;
+  });
 
   useEffect(() => {
-    // Skip profile bootstrap on auth pages — avoids expected-401 console noise
     const path = typeof window !== "undefined" ? window.location.pathname : "";
     if (path === "/login" || path === "/register") {
       setLoading(false);
@@ -17,25 +28,35 @@ export const AuthProvider = ({ children }) => {
     let mounted = true;
     api
       .get("/auth/profile")
-      .then((r) => { if (mounted) setUser(r.data); })
-      .catch((err) => {
-        if (err?.response?.status && err.response.status !== 401) {
-          console.error("Profile fetch failed:", err);
+      .then((r) => {
+        if (mounted) {
+          setUser(r.data);
+          localStorage.setItem("user", JSON.stringify(r.data));
         }
       })
-      .finally(() => { if (mounted) setLoading(false); });
+      .catch((err) => {
+        if (mounted) {
+          setUser(null);
+          localStorage.removeItem("user");
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
     return () => { mounted = false; };
   }, []);
 
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     setUser(data.user);
+    localStorage.setItem("user", JSON.stringify(data.user));
     return data.user;
   };
 
   const register = async (payload) => {
     const { data } = await api.post("/auth/register", payload);
     setUser(data.user);
+    localStorage.setItem("user", JSON.stringify(data.user));
     return data.user;
   };
 
@@ -46,6 +67,7 @@ export const AuthProvider = ({ children }) => {
       console.error("Logout request failed:", err);
     }
     setUser(null);
+    localStorage.removeItem("user");
   };
 
   const can = (...roles) => user && roles.includes(user.role);
